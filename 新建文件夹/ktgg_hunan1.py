@@ -104,42 +104,39 @@ class Ktgg_hunan(object):
                     if anyou.decode('utf-8') in t:
                         l.append(anyou.decode('utf-8'))
                 l.sort(reverse=True,key=len)
-                print(l)
-                
-                # try:
-                #     d['anyou'] = l[0]
-                # except IndexError:
-                #     with open('shibai.txt','a',encoding='utf-8') as f:
-                #         f.write(t)
-                #         f.write('\n')
-                #     continue
-                # try:
-                #     if '诉' in t:
-                #         text = re.findall('于(.*?)在(.*?)开庭审理(.*?)诉(.*?)%s' % d['anyou'] ,t)[0]
-                #         d['plaintiff'] = text[2]
-                #         d['pname'] = text[3]
-                #     else:
-                #         text = re.findall('于(.*?)在(.*?)开庭审理(.*?)%s'% d['anyou'] ,t)[0]
-                #         d['plaintiff'] = ''
-                #         d['pname'] = text[2]
-                #     d['sorttime'] = text[0]
-                #     d['courtNum'] = text[1]
-                # except IndexError:
-                #     with open('shibai.txt','a',encoding='utf-8') as f:
-                #         f.write(t)
-                #         f.write('\n')
-                #     continue
-                # md5.update((t + d['url']).encode())
-                # d['md5'] = md5.hexdigest()
-                # print(d)
-            
+                try:
+                    d['anyou'] = l[0]
+                except IndexError:
+                    with open('shibai.txt','a',encoding='utf-8') as f:
+                        f.write(t)
+                        f.write('\n')
+                    continue
+                try:
+                    if '诉' in t:
+                        text = re.findall('于(.*?)在(.*?)开庭审理(.*?)诉(.*?)%s' % d['anyou'] ,t)[0]
+                        d['plaintiff'] = text[2]
+                        d['pname'] = text[3]
+                    else:
+                        text = re.findall('于(.*?)在(.*?)开庭审理(.*?)%s'% d['anyou'] ,t)[0]
+                        d['plaintiff'] = ''
+                        d['pname'] = text[2]
+                    d['sorttime'] = text[0]
+                    d['courtNum'] = text[1]
+                except IndexError:
+                    with open('shibai.txt','a',encoding='utf-8') as f:
+                        f.write(t)
+                        f.write('\n')
+                    continue
+                md5.update((t + d['url']).encode())
+                d['md5'] = md5.hexdigest()
+                print(d)
+                self.insert_mysql(d)
+
         else:
             for y in self.biaoshi:
                 if y in d['title']:
                     break
 
-        # self.insert_mysql(d)
-    
     def insert_mysql(self,d):
 
         # 删除没有值的字段
@@ -170,6 +167,12 @@ class Ktgg_hunan(object):
         links = self.set_request()
         self.request_info(links)
 
-if __name__ == "__main__":
-    kh = Ktgg_hunan()
-    kh.main()
+# if __name__ == "__main__":
+#     kh = Ktgg_hunan()
+#     kh.main()
+
+body = '开福区人民法院将于2018年10月30日14:00在B216民事审判庭开庭审理湖南爱屋装饰有限责任公司诉曹宇夫装饰装修合同纠纷'
+url = 'http://kfqfy.chinacourt.gov.cn/article/detail/2018/10/id/3543002.shtml'
+md5 = hashlib.md5()
+md5.update((body+url).encode())
+print(md5.hexdigest())
