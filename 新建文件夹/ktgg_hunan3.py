@@ -19,21 +19,19 @@ class Ktgg_hunan(object):
 
         # 定义正则表达式
         self.re = [
+            '于(.*?)\\s.*?本院(.*?)公开审理(.*?)诉(.*?)%s',
+            '于(.*?)\\s.*?本院(.*?)公开审理(.*?)%s',
+            '于(.*?)在(.*?)公开审理(.*?)诉(.*?)%s',
+            '于(.*?)在(.*?)公开审理(.*?)%s',
+            '于(.*?)在(.*?)审理(.*?)诉(.*?)%s',
+            '于(.*?)在(.*?)审理(.*?)%s',
             ]
 
-        self.re1 = [
-            
-            ]
-        
-        self.re2 = [
-           
-        ]
-        
         # 定义案由
         self.anyou = ''
 
         # 定义去除详情页非数据标识
-        self.biaoshi = ['纠纷','争议','诉','排期开庭']
+        self.biaoshi = ['法院公告','开庭公告']
 
         # 定义请求头headers
         self.headers = {
@@ -41,13 +39,13 @@ class Ktgg_hunan(object):
             "Accept-Encoding": "gzip, deflate",
             "Accept-Language": "zh-CN,zh;q=0.9",
             "Connection": "keep-alive",
-            "Host": "wcxfy.chinacourt.gov.cn",
+            "Host": "hnjhfy.chinacourt.gov.cn",
             "Upgrade-Insecure-Requests": "1",
             "User-Agent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.142 Safari/537.36",
             }
 
         # 起始url 
-        self.url = "http://wcxfy.chinacourt.gov.cn/article/index/id/M0guNTBINTAwNCACAAA/page/1.shtml"
+        self.url = "http://hnjhfy.chinacourt.gov.cn/article/index/id/M0gzNjCwNDAwNCACAAA/page/1.shtml"
 
     # 获取所有的案由
     def set_anyou(self):
@@ -88,7 +86,7 @@ class Ktgg_hunan(object):
     def request_info(self,links):
         for i in links:
             d = {}
-            url = 'http://wcxfy.chinacourt.gov.cn' + i
+            url = 'http://hnjhfy.chinacourt.gov.cn' + i
             while True:
                 try:
                     re = requests.get(url,headers=self.headers,timeout=3.05)
@@ -97,33 +95,111 @@ class Ktgg_hunan(object):
                 except (Timeout,ConnectionError):
                     continue
                 break
-
+            
             # 获取所有的文本内容
             text = etree.HTML(html)
             content = text.xpath('//div[@class="text"]')
             if content == []:
                 continue
             info = content[0].xpath('string(.)')
-            with open('info.txt','a',encoding='utf-8') as f:
-                f.write(info)
-                f.write('\n')
+            # with open('info.txt','a',encoding='utf-8') as f:
+            #     f.write(info)
+            #     f.write('\n')
+            #     f.write('----------------')
+            #     f.write('\n')
+
             # 先获取一些字段
             d['source'] = self.url
             d['url'] = url
             d['title'] = text.xpath('//div[@class="b_title"]/text()')[0]
-            d['court'] = '湖南省长沙市望城区人民法院'
+            d['court'] = '湖南省嘉禾县人民法院'
             d['posttime'] = text.xpath('//div[@class="sth_a"]/span[1]/text()')[0].strip().split('：')[-1]
             d['province'] = '湖南省'
             self.parse(info,d)
 
     # 解析文本提取字段
     def parse(self,info,d):
-        if '开庭排期' in d['title']:
-            pass
+        # 由于文本原因需要分两种情况解析页面
+        if '2010' not in d['title']:
+            text = re.findall('(.*?)一案。',info)
+            for t in text:
+                d['body'] = t.replace('\u3000','').strip()
+
+                # 获取案由
+                l = []
+                for anyou in self.anyou:
+                    if anyou.decode('utf-8') in t:
+                        l.append(anyou.decode('utf-8'))
+                l.sort(reverse=True,key=len)
+                try:
+                    d['anyou'] = l[0]
+                except IndexError:
+                    continue
+
+                for i in self.re:
+                    # 提取想要的信息
+                    try:
+                        l = re.findall(i % d['anyou'],t)[0]
+                        if len(l) == 3:
+                            d['plaintiff'] = ''
+                            d['pname'] = l[2].strip()
+                        else:
+                            d['plaintiff'] = l[2].strip()
+                            d['pname'] = l[3].strip()
+                        d['sorttime'] = l[0].strip()
+                        d['courtNum'] = l[1].strip()
+                        break
+                    except IndexError:
+                        continue
+
+                # 生成MD5
+                md5 = hashlib.md5()
+                md5.update((d['body'] + d['url']).encode())
+                d['md5'] = md5.hexdigest()
+                self.insert_mysql(d)
         else:
-            pass
-        # self.insert_mysql(d)
-            
+            text = info.split('湖南省嘉禾县人民法院')
+            for t in text[1:]:
+                # 对文本做处理
+                t = t.replace('\r\n','').replace('\xa0','').replace(' ','')
+                d['body'] = t
+                # 提取案由
+                l = []
+                for anyou in self.anyou:
+                    if anyou.decode('utf-8') in t:
+                        l.append(anyou.decode('utf-8'))
+                l.sort(reverse=True,key=len)
+                try:
+                    d['anyou'] = l[0]
+                except IndexError:
+                    continue
+                try:
+                    # 提取被告
+                    d['pname'] = re.findall('公告(.*?)：',t)[0]
+                    # 提取原告
+                    d['plaintiff'] = re.findall('原告(.*?)[诉与]',t)[0]
+                except IndexError:
+                    continue
+                # 提取开庭时间
+                try:
+                    d['sorttime'] = re.findall('并定于(.*?日)',t)[0]
+                except IndexError:
+                    d['sorttime'] = ''
+                # 提取庭审地点
+                try:
+                    d['courtNum'] = re.findall('在(.*?)公开',t)[0]
+                except IndexError:
+                    d['courtNum'] = ''
+                # 提取庭审号
+                try:
+                    d['caseNo'] = re.findall('送达(.*?号)',t)[0]
+                except IndexError:
+                    d['caseNo'] = ''
+                md5 = hashlib.md5()
+                md5.update((d['body'] + d['url']).encode())
+                d['md5'] = md5.hexdigest()
+                self.insert_mysql(d)
+
     # 对数据的入库和清洗
     def insert_mysql(self,d):
         # 删除没有值的字段
@@ -145,6 +221,7 @@ class Ktgg_hunan(object):
         except:
             self.db.rollback()
     
+    # 关闭数据库连接
     def close_mysql(self):
         self.cursor.close()
         self.db.close()
@@ -159,3 +236,5 @@ class Ktgg_hunan(object):
 if __name__ == "__main__":
     kh = Ktgg_hunan()
     kh.main()
+
+
